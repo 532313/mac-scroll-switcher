@@ -1,0 +1,4 @@
+scrollswitch
+*.dSYM/
+.DS_Store
+
