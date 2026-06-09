@@ -32,25 +32,52 @@ The first run needs Accessibility permission:
 
 Keep "Natural scrolling" enabled in macOS settings.
 
-## Install as a LaunchAgent
+## Install as a LaunchAgent (auto-start on login)
+
+Install the binary and register it as a LaunchAgent:
 
 ```sh
-make install
-make load
+install -d ~/.local/bin
+install -m 0755 scrollswitch ~/.local/bin/scrollswitch
+
+# Copy and configure the plist
+sed "s|@BINDIR@|$HOME/.local/bin|g" launchd/com.local.scrollswitch.plist \
+  > ~/Library/LaunchAgents/com.local.scrollswitch.plist
+chmod 0644 ~/Library/LaunchAgents/com.local.scrollswitch.plist
+
+# Register the agent (takes effect on next login)
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.local.scrollswitch.plist
 ```
 
-Default install path:
+To start immediately without rebooting:
+
+```sh
+launchctl kickstart -k "gui/$(id -u)/com.local.scrollswitch"
+```
+
+To stop and unregister:
+
+```sh
+launchctl bootout "gui/$(id -u)/com.local.scrollswitch"
+```
+
+Default paths:
 
 ```text
-/usr/local/bin/scrollswitch
+~/.local/bin/scrollswitch
 ~/Library/LaunchAgents/com.local.scrollswitch.plist
 ```
 
-To uninstall:
+### How auto-start and auto-stop work
 
-```sh
-make uninstall
-```
+The [launchd plist](launchd/com.local.scrollswitch.plist) uses two keys:
+
+| Key | Value | Purpose |
+| --- | --- | --- |
+| `RunAtLoad` | `true` | Starts scrollswitch automatically when you log in. |
+| `KeepAlive` | `true` | Restarts the process if it crashes unexpectedly. |
+
+On **shutdown or logout**, macOS's launchd sends `SIGTERM` to all running user agents. The code handles this signal ([scrollswitch.c:174](src/scrollswitch.c#L174)) and cleanly exits the run loop, so no stale process remains.
 
 ## Options
 
