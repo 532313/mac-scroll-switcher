@@ -1,51 +1,61 @@
 # scrollswitch
 
-`scrollswitch` is a small macOS background tool written in C.
+Keep your Mac's trackpad natural scrolling, while inverting the direction of a traditional mouse wheel.
 
-It keeps trackpad scrolling natural while making a traditional mouse wheel feel like Windows:
+In macOS, "natural scrolling" is a single global setting that applies to both trackpads and mice.
+This tool intercepts scroll events at the system level and only inverts the mouse wheel, so your trackpad stays natural.
 
-- Enable macOS natural scrolling in System Settings.
-- Run `scrollswitch`.
-- Trackpad scroll events pass through unchanged.
-- Discrete mouse-wheel events are inverted.
+## How to set up
 
-This is needed because macOS exposes natural scrolling as a global setting for both trackpads and mice.
+### 1. System Settings
 
-## Build
+Open **System Settings → Trackpad → Scroll & Zoom**, make sure **Natural scrolling** is enabled.
+
+Open **System Settings → Mouse**, make sure **Natural scrolling** is **enabled** here too.
+(Yes, enable it for both. scrollswitch will invert the mouse wheel for you.)
+
+### 2. Build
 
 ```sh
 make
 ```
 
-## Run
+If `make` fails, install **Xcode Command Line Tools** first:
+
+```sh
+xcode-select --install
+```
+
+### 3. Run once (to grant permission)
 
 ```sh
 ./scrollswitch
+
+# Optional: add --verbose to see log output
+./scrollswitch --verbose
 ```
 
-The first run needs Accessibility permission:
+The first time, macOS will show a popup asking for **Accessibility** permission.
 
-1. Open System Settings.
-2. Go to Privacy & Security.
-3. Open Accessibility.
-4. Allow the terminal app you used to start `scrollswitch`, or allow the installed `scrollswitch` binary.
+1. Click **Open System Settings** in the popup (or go to **System Settings → Privacy & Security → Accessibility**).
+2. Find your terminal app (e.g. Terminal, iTerm2) in the list and enable it.
+3. Run `./scrollswitch` again.
 
-Keep "Natural scrolling" enabled in macOS settings.
+Once it's running, use your mouse — the scroll direction should be inverted, while your trackpad stays natural.
+Press `Ctrl+C` to stop.
 
-## Install as a LaunchAgent (auto-start on login)
+### 4. Install for auto-start on login
 
-Install the binary and register it as a LaunchAgent:
+This registers scrollswitch as a **LaunchAgent**, so it starts automatically when you log in and stops when you shut down.
 
 ```sh
 install -d ~/.local/bin
 install -m 0755 scrollswitch ~/.local/bin/scrollswitch
 
-# Copy and configure the plist
 sed "s|@BINDIR@|$HOME/.local/bin|g" launchd/com.local.scrollswitch.plist \
   > ~/Library/LaunchAgents/com.local.scrollswitch.plist
 chmod 0644 ~/Library/LaunchAgents/com.local.scrollswitch.plist
 
-# Register the agent (takes effect on next login)
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.local.scrollswitch.plist
 ```
 
@@ -55,43 +65,63 @@ To start immediately without rebooting:
 launchctl kickstart -k "gui/$(id -u)/com.local.scrollswitch"
 ```
 
-To stop and unregister:
+### 5. Verify it's running
 
 ```sh
+launchctl list | grep scrollswitch
+```
+
+If you see a line with `com.local.scrollswitch` and no error code, it's running.
+
+## How it works
+
+### Auto-start on login
+
+macOS's launchd watches `~/Library/LaunchAgents/`. When you log in, it finds the plist file,
+sees `RunAtLoad = true`, and immediately starts scrollswitch.
+
+### Auto-stop on shutdown
+
+When you shut down, log out, or restart, macOS's launchd sends a `SIGTERM` signal to every
+running user agent. scrollswitch catches this signal and exits cleanly — no stale processes.
+
+### Crash recovery
+
+If scrollswitch crashes unexpectedly, `KeepAlive = true` tells launchd to restart it automatically.
+
+## Manage the service
+
+| What you want | Command |
+| --- | --- |
+| Start now (or restart after stopping) | `launchctl kickstart -k "gui/$(id -u)/com.local.scrollswitch"` |
+| Stop and unregister (won't start on next login until you re-run the install step) | `launchctl bootout "gui/$(id -u)/com.local.scrollswitch"` |
+| Check if running | `launchctl list \| grep scrollswitch` |
+| Re-apply plist after modifying it | `launchctl bootout "gui/$(id -u)/com.local.scrollswitch"` / `launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.local.scrollswitch.plist` |
+
+### How to completely remove
+
+```sh
+# Stop the service
 launchctl bootout "gui/$(id -u)/com.local.scrollswitch"
+
+# Remove the files
+rm ~/Library/LaunchAgents/com.local.scrollswitch.plist
+rm ~/.local/bin/scrollswitch
 ```
-
-Default paths:
-
-```text
-~/.local/bin/scrollswitch
-~/Library/LaunchAgents/com.local.scrollswitch.plist
-```
-
-### How auto-start and auto-stop work
-
-The [launchd plist](launchd/com.local.scrollswitch.plist) uses two keys:
-
-| Key | Value | Purpose |
-| --- | --- | --- |
-| `RunAtLoad` | `true` | Starts scrollswitch automatically when you log in. |
-| `KeepAlive` | `true` | Restarts the process if it crashes unexpectedly. |
-
-On **shutdown or logout**, macOS's launchd sends `SIGTERM` to all running user agents. The code handles this signal ([scrollswitch.c:174](src/scrollswitch.c#L174)) and cleanly exits the run loop, so no stale process remains.
 
 ## Options
 
 ```sh
-scrollswitch --help
-scrollswitch --verbose
-scrollswitch --invert-continuous
+./scrollswitch --help
+./scrollswitch --verbose
+./scrollswitch --invert-continuous
 ```
 
-`--invert-continuous` also inverts continuous scroll devices such as a Magic Mouse.
-Do not use it if your trackpad is already correct.
+`--invert-continuous` also inverts scroll events from continuous devices (e.g. Magic Mouse).
+Don't use this if your trackpad is already working correctly.
 
 ## Notes
 
-This tool uses a `CGEventTap`, so macOS may disable it until Accessibility permission is granted.
-It does not change system preferences and does not need root privileges.
-
+- This tool uses `CGEventTap`, which is why macOS requires Accessibility permission.
+- It does not change any system settings — it only modifies scroll events in real time.
+- No root privileges needed.
